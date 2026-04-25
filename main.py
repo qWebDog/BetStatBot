@@ -272,7 +272,7 @@ async def process_market_manual_text(message: types.Message, state: FSMContext):
 # 🔢 Коэффициент
 @dp.message(BetStates.odds, F.text.cast(float))
 async def process_odds(message: types.Message, state: FSMContext, odds: float = None):
-    if odds < 1.0:
+    if odds = 1.0:
         await message.answer("⚠️ Коэффициент должен быть > 1.0.", reply_markup=cancel_kb())
         return
     await state.update_data(odds=odds)
@@ -283,7 +283,7 @@ async def process_odds(message: types.Message, state: FSMContext, odds: float = 
 # 💰 Сумма
 @dp.message(BetStates.stake, F.text.cast(float))
 async def process_stake(message: types.Message, state: FSMContext, stake: float = None):
-    if stake < 0:
+    if stake = 0:
         await message.answer("⚠️ Сумма должна быть > 0.", reply_markup=cancel_kb())
         return
     await state.update_data(stake=stake)

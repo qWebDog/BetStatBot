@@ -49,7 +49,7 @@ async def init_db():
         """)
         await db.commit()
 
-# 💾 Функции БД
+# 💾 Вспомогательные функции БД
 async def get_user_markets(user_id: int) -> list[str]:
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("SELECT market FROM user_markets WHERE user_id = ?", (user_id,))
@@ -69,7 +69,8 @@ async def get_bet_by_id(bet_id: int) -> dict | None:
             "SELECT id, event, market, odds, stake, outcome FROM bets WHERE id = ?", (bet_id,)
         )
         row = await cursor.fetchone()
-        return {"id": row[0], "event": row[1], "market": row[2], "odds": row[3], "stake": row[4], "outcome": row[5]} if row else None
+        if not row: return None
+        return {"id": row[0], "event": row[1], "market": row[2], "odds": row[3], "stake": row[4], "outcome": row[5]}
 
 async def get_last_bet(user_id: int) -> dict | None:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -78,7 +79,8 @@ async def get_last_bet(user_id: int) -> dict | None:
             (user_id,)
         )
         row = await cursor.fetchone()
-        return {"id": row[0], "event": row[1], "market": row[2], "odds": row[3], "stake": row[4], "outcome": row[5]} if row else None
+        if not row: return None
+        return {"id": row[0], "event": row[1], "market": row[2], "odds": row[3], "stake": row[4], "outcome": row[5]}
 
 async def update_bet(bet_id: int, **kwargs):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -99,6 +101,7 @@ async def save_bet(user_id: int, event: str, market: str, odds: float, stake: fl
         )
         await db.commit()
 
+# 📈 Статистика
 async def get_stats(user_id: int, days: int | None = None) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         query = "SELECT outcome, odds, stake FROM bets WHERE user_id = ?"
@@ -114,13 +117,11 @@ async def get_stats(user_id: int, days: int | None = None) -> dict:
         for outcome, odds, stake in rows:
             staked += stake
             if outcome == "win":
-                wins += 1
-                returned += stake * odds
+                wins += 1; returned += stake * odds
             elif outcome == "loss":
                 losses += 1
             elif outcome == "push":
-                pushes += 1
-                returned += stake
+                pushes += 1; returned += stake
 
         profit = returned - staked
         return {
@@ -130,7 +131,7 @@ async def get_stats(user_id: int, days: int | None = None) -> dict:
             "roi": (profit / staked * 100) if staked else 0
         }
 
-# 🎛 Клавиатуры
+# 🎛 Генераторы клавиатур
 def main_menu_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Добавить ставку", callback_data="add_bet")],
@@ -246,8 +247,14 @@ async def process_market_manual_text(message: types.Message, state: FSMContext):
     await state.set_state(BetStates.odds)
     await message.answer(f"📊 Сохранено: {message.text}\n🔢 Введите коэффициент:")
 
-@dp.message(BetStates.odds, F.text.cast(float))
-async def process_odds(message: types.Message, state: FSMContext, odds: float):
+@dp.message(BetStates.odds)
+async def process_odds(message: types.Message, state: FSMContext):
+    text = message.text.strip().replace(",", ".")
+    try:
+        odds = float(text)
+    except ValueError:
+        await message.answer("⚠️ Введите число (например, 1.5 или 2,0):", reply_markup=cancel_kb())
+        return
     if odds < 1.0:
         await message.answer("⚠️ Коэффициент должен быть > 1.0.", reply_markup=cancel_kb())
         return
@@ -255,8 +262,14 @@ async def process_odds(message: types.Message, state: FSMContext, odds: float):
     await state.set_state(BetStates.stake)
     await message.answer("💰 Введите сумму ставки:", reply_markup=cancel_kb())
 
-@dp.message(BetStates.stake, F.text.cast(float))
-async def process_stake(message: types.Message, state: FSMContext, stake: float):
+@dp.message(BetStates.stake)
+async def process_stake(message: types.Message, state: FSMContext):
+    text = message.text.strip().replace(",", ".")
+    try:
+        stake = float(text)
+    except ValueError:
+        await message.answer("⚠️ Введите число (например, 1000 или 500,50):", reply_markup=cancel_kb())
+        return
     if stake <= 0:
         await message.answer("⚠️ Сумма должна быть > 0.", reply_markup=cancel_kb())
         return
@@ -264,28 +277,21 @@ async def process_stake(message: types.Message, state: FSMContext, stake: float)
     await state.set_state(BetStates.outcome)
     await message.answer("🎯 Какой результат ставки?", reply_markup=outcome_kb())
 
-# ✅ ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ИСХОДА
-@dp.callback_query(BetStates.outcome, F.data.in_(["outcome_win", "outcome_loss", "outcome_push"]))
+@dp.callback_query(BetStates.outcome, F.data.startswith("outcome_"))
 async def process_outcome(callback: types.CallbackQuery, state: FSMContext):
-    # Безопасно извлекаем исход
     outcome = callback.data.split("_")[1].split(":")[0]
     data = await state.get_data()
     
-    await save_bet(
-        callback.from_user.id,
-        data.get("event", "Unknown"),
-        data.get("market", "Unknown"),
-        data.get("odds", 1.0),
-        data.get("stake", 0.0),
-        outcome
-    )
-    
-    stake = data.get("stake", 0.0)
+    event = data.get("event", "Не указано")
+    market = data.get("market", "Не указано")
     odds = data.get("odds", 1.0)
+    stake = data.get("stake", 0.0)
+
+    await save_bet(callback.from_user.id, event, market, odds, stake, outcome)
     profit = (stake * odds - stake) if outcome == "win" else (-stake) if outcome == "loss" else 0
     
     await callback.message.edit_text(
-        f"✅ Ставка сохранена!\n🏟 {data.get('event')} | {data.get('market')}\n🔢 {odds} | 💰 {stake}\n📊 Прибыль: `{profit:+.2f}`",
+        f"✅ Ставка сохранена!\n🏟 {event} | 📊 {market}\n🔢 {odds} | 💰 {stake}\n📊 Прибыль: `{profit:+.2f}`",
         reply_markup=main_menu_kb()
     )
     await state.clear()
@@ -322,23 +328,29 @@ async def edit_field_click(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @dp.message(EditStates.event)
-@dp.message(EditStates.odds, F.text.cast(float))
-@dp.message(EditStates.stake, F.text.cast(float))
+@dp.message(EditStates.odds)
+@dp.message(EditStates.stake)
 async def edit_text_input(message: types.Message, state: FSMContext):
     data = await state.get_data()
     bet_id = data["edit_bet_id"]
     current_state = await state.get_state()
     field_name = current_state.split(":")[1]
-    value = message.text.strip()
+    text = message.text.strip().replace(",", ".")
     
-    if field_name == "odds" and float(value) <= 1.0:
+    try:
+        value = float(text) if field_name in ["odds", "stake"] else text
+    except ValueError:
+        await message.answer("⚠️ Введите корректное число или текст.", reply_markup=cancel_kb())
+        return
+
+    if field_name == "odds" and value <= 1.0:
         await message.answer("⚠️ Коэффициент должен быть > 1.0", reply_markup=cancel_kb())
         return
-    if field_name == "stake" and float(value) <= 0:
+    if field_name == "stake" and value <= 0:
         await message.answer("⚠️ Сумма должна быть > 0", reply_markup=cancel_kb())
         return
 
-    await update_bet(bet_id, **{field_name: float(value) if field_name in ["odds", "stake"] else value})
+    await update_bet(bet_id, **{field_name: value})
     await show_updated_bet(message, bet_id)
     await state.clear()
 
@@ -402,7 +414,7 @@ async def callback_stats(callback: types.CallbackQuery):
             f"📈 Винрейт: `{stats['win_rate']:.1f}%`\n"
             f"💰 Вложено: `{stats['staked']:.2f}` | 💸 Возвращено: `{stats['returned']:.2f}`\n"
             f"📉 Прибыль: `{stats['profit']:+.2f}` | 📊 ROI: `{stats['roi']:.1f}%`")
-    await callback.message.edit_text(text, reply_markup=main_menu_kb())
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=main_menu_kb())
     await callback.answer()
 
 # 🏁 Запуск

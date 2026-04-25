@@ -8,7 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import aiosqlite
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "токен")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "ваш_токен")
 DB_PATH = "bets.db"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -49,7 +49,7 @@ async def init_db():
         """)
         await db.commit()
 
-# 💾 Вспомогательные функции БД
+# 💾 Функции БД
 async def get_user_markets(user_id: int) -> list[str]:
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("SELECT market FROM user_markets WHERE user_id = ?", (user_id,))
@@ -69,8 +69,7 @@ async def get_bet_by_id(bet_id: int) -> dict | None:
             "SELECT id, event, market, odds, stake, outcome FROM bets WHERE id = ?", (bet_id,)
         )
         row = await cursor.fetchone()
-        if not row: return None
-        return {"id": row[0], "event": row[1], "market": row[2], "odds": row[3], "stake": row[4], "outcome": row[5]}
+        return {"id": row[0], "event": row[1], "market": row[2], "odds": row[3], "stake": row[4], "outcome": row[5]} if row else None
 
 async def get_last_bet(user_id: int) -> dict | None:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -79,12 +78,11 @@ async def get_last_bet(user_id: int) -> dict | None:
             (user_id,)
         )
         row = await cursor.fetchone()
-        if not row: return None
-        return {"id": row[0], "event": row[1], "market": row[2], "odds": row[3], "stake": row[4], "outcome": row[5]}
+        return {"id": row[0], "event": row[1], "market": row[2], "odds": row[3], "stake": row[4], "outcome": row[5]} if row else None
 
 async def update_bet(bet_id: int, **kwargs):
     async with aiosqlite.connect(DB_PATH) as db:
-        sets = ", ".join(f"{k} = ?" for k in kwargs.keys())
+        sets = ", ".join(f"{k} = ?" for k in kwargs)
         await db.execute(f"UPDATE bets SET {sets} WHERE id = ?", list(kwargs.values()) + [bet_id])
         await db.commit()
 
@@ -101,7 +99,6 @@ async def save_bet(user_id: int, event: str, market: str, odds: float, stake: fl
         )
         await db.commit()
 
-# 📈 Статистика
 async def get_stats(user_id: int, days: int | None = None) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         query = "SELECT outcome, odds, stake FROM bets WHERE user_id = ?"
@@ -133,7 +130,7 @@ async def get_stats(user_id: int, days: int | None = None) -> dict:
             "roi": (profit / staked * 100) if staked else 0
         }
 
-# 🎛 Генераторы клавиатур
+# 🎛 Клавиатуры
 def main_menu_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Добавить ставку", callback_data="add_bet")],
@@ -179,7 +176,7 @@ def edit_bet_kb(bet_id: int):
     ])
 
 def outcome_kb(bet_id: int | None = None):
-    suffix = f":{bet_id}" if bet_id is not None else ""  # ✅ Исправлено: пустая строка вместо пробела
+    suffix = f":{bet_id}" if bet_id is not None else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Выигрыш", callback_data=f"outcome_win{suffix}"),
          InlineKeyboardButton(text="❌ Проигрыш", callback_data=f"outcome_loss{suffix}")],
@@ -207,7 +204,7 @@ async def callback_add(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(BetStates.event)
 async def process_event(message: types.Message, state: FSMContext):
-    await state.update_data(event=message.text)
+    await state.update_data(event=message.text.strip())
     await state.set_state(BetStates.market_select)
     kb = await market_keyboard(message.from_user.id)
     await message.answer("📊 Выберите рынок:", reply_markup=kb)
@@ -217,13 +214,13 @@ async def process_market_btn(callback: types.CallbackQuery, state: FSMContext):
     market = callback.data.split(":", 1)[1]
     await state.update_data(market=market)
     await state.set_state(BetStates.odds)
-    await callback.message.edit_text(f"📊 Выбрано: {market}\n🔢 Введите коэффициент:", parse_mode="Markdown")
+    await callback.message.edit_text(f"📊 Выбрано: {market}\n🔢 Введите коэффициент:")
     await callback.answer()
 
 @dp.callback_query(F.data == "m_add", BetStates.market_select)
 async def process_market_add(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(BetStates.market_add)
-    await callback.message.edit_text("✍️ Введите название нового рынка (напр. Фора (-1.5)):", parse_mode="Markdown", reply_markup=cancel_kb())
+    await callback.message.edit_text("✍️ Введите название нового рынка (напр. Фора (-1.5)):", reply_markup=cancel_kb())
     await callback.answer()
 
 @dp.message(BetStates.market_add)
@@ -235,7 +232,7 @@ async def process_market_add_text(message: types.Message, state: FSMContext):
     await add_user_market(message.from_user.id, market)
     await state.set_state(BetStates.market_select)
     kb = await market_keyboard(message.from_user.id)
-    await message.answer(f"✅ `{market}` сохранён в список.\n📊 Выберите рынок:", reply_markup=kb, parse_mode="Markdown")
+    await message.answer(f"✅ `{market}` сохранён в список.\n📊 Выберите рынок:", reply_markup=kb)
 
 @dp.callback_query(F.data == "m_manual", BetStates.market_select)
 async def process_market_manual_btn(callback: types.CallbackQuery, state: FSMContext):
@@ -247,11 +244,11 @@ async def process_market_manual_btn(callback: types.CallbackQuery, state: FSMCon
 async def process_market_manual_text(message: types.Message, state: FSMContext):
     await state.update_data(market=message.text.strip())
     await state.set_state(BetStates.odds)
-    await message.answer(f"📊 Сохранено: {message.text}\n🔢 Введите коэффициент:", parse_mode="Markdown")
+    await message.answer(f"📊 Сохранено: {message.text}\n🔢 Введите коэффициент:")
 
 @dp.message(BetStates.odds, F.text.cast(float))
-async def process_odds(message: types.Message, state: FSMContext, odds: float = None):
-    if odds == 1.0:
+async def process_odds(message: types.Message, state: FSMContext, odds: float):
+    if odds < 1.0:
         await message.answer("⚠️ Коэффициент должен быть > 1.0.", reply_markup=cancel_kb())
         return
     await state.update_data(odds=odds)
@@ -259,23 +256,36 @@ async def process_odds(message: types.Message, state: FSMContext, odds: float = 
     await message.answer("💰 Введите сумму ставки:", reply_markup=cancel_kb())
 
 @dp.message(BetStates.stake, F.text.cast(float))
-async def process_stake(message: types.Message, state: FSMContext, stake: float = None):
-    if stake == 0:
+async def process_stake(message: types.Message, state: FSMContext, stake: float):
+    if stake <= 0:
         await message.answer("⚠️ Сумма должна быть > 0.", reply_markup=cancel_kb())
         return
     await state.update_data(stake=stake)
     await state.set_state(BetStates.outcome)
     await message.answer("🎯 Какой результат ставки?", reply_markup=outcome_kb())
 
-# ✅ Исправлено: убраны лишние пробелы в фильтре и логике разбора
+# ✅ ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ИСХОДА
 @dp.callback_query(BetStates.outcome, F.data.in_(["outcome_win", "outcome_loss", "outcome_push"]))
 async def process_outcome(callback: types.CallbackQuery, state: FSMContext):
-    outcome = callback.data.split("_")[1]
+    # Безопасно извлекаем исход
+    outcome = callback.data.split("_")[1].split(":")[0]
     data = await state.get_data()
-    await save_bet(callback.from_user.id, data["event"], data["market"], data["odds"], data["stake"], outcome)
-    profit = (data["stake"] * data["odds"] - data["stake"]) if outcome == "win" else (-data["stake"]) if outcome == "loss" else 0
+    
+    await save_bet(
+        callback.from_user.id,
+        data.get("event", "Unknown"),
+        data.get("market", "Unknown"),
+        data.get("odds", 1.0),
+        data.get("stake", 0.0),
+        outcome
+    )
+    
+    stake = data.get("stake", 0.0)
+    odds = data.get("odds", 1.0)
+    profit = (stake * odds - stake) if outcome == "win" else (-stake) if outcome == "loss" else 0
+    
     await callback.message.edit_text(
-        f"✅ Ставка сохранена!\n🏟 {data['event']} | {data['market']}\n🔢 {data['odds']} | 💰 {data['stake']}\n📊 Прибыль: `{profit:+.2f}`",
+        f"✅ Ставка сохранена!\n🏟 {data.get('event')} | {data.get('market')}\n🔢 {odds} | 💰 {stake}\n📊 Прибыль: `{profit:+.2f}`",
         reply_markup=main_menu_kb()
     )
     await state.clear()
@@ -289,20 +299,18 @@ async def callback_edit_last(callback: types.CallbackQuery, state: FSMContext):
         return
     await state.update_data(edit_bet_id=bet["id"])
     await state.set_state(EditStates.menu)
-    text = (
-        f"📝 *Последняя ставка*\n"
-        f"🏟 {bet['event']} | 📊 {bet['market']}\n"
-        f"🔢 {bet['odds']} | 💰 {bet['stake']}\n"
-        f"🎯 Исход: `{bet['outcome']}`"
-    )
+    text = (f"📝 *Последняя ставка*\n🏟 {bet['event']} | 📊 {bet['market']}\n"
+            f"🔢 {bet['odds']} | 💰 {bet['stake']}\n🎯 Исход: `{bet['outcome']}`")
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=edit_bet_kb(bet["id"]))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("edit_"), EditStates.menu)
 async def edit_field_click(callback: types.CallbackQuery, state: FSMContext):
-    field = callback.data.split(":")[0].replace("edit_", "")
-    bet_id = callback.data.split(":")[1]
+    parts = callback.data.split(":")
+    field = parts[0].replace("edit_", "")
+    bet_id = parts[1]
     await state.update_data(edit_bet_id=int(bet_id))
+    
     if field == "outcome":
         await state.set_state(EditStates.outcome)
         await callback.message.edit_text("🎯 Выберите новый исход:", reply_markup=outcome_kb(int(bet_id)))
@@ -319,44 +327,39 @@ async def edit_field_click(callback: types.CallbackQuery, state: FSMContext):
 async def edit_text_input(message: types.Message, state: FSMContext):
     data = await state.get_data()
     bet_id = data["edit_bet_id"]
-    field = await state.get_state()
+    current_state = await state.get_state()
+    field_name = current_state.split(":")[1]
     value = message.text.strip()
-    if field == EditStates.odds and float(value) <= 1.0:
+    
+    if field_name == "odds" and float(value) <= 1.0:
         await message.answer("⚠️ Коэффициент должен быть > 1.0", reply_markup=cancel_kb())
         return
-    if field == EditStates.stake and float(value) <= 0:
+    if field_name == "stake" and float(value) <= 0:
         await message.answer("⚠️ Сумма должна быть > 0", reply_markup=cancel_kb())
         return
 
-    # ✅ Исправлено: убран пробел в replace
-    field_name = field.replace("EditStates.", "")
     await update_bet(bet_id, **{field_name: float(value) if field_name in ["odds", "stake"] else value})
     await show_updated_bet(message, bet_id)
     await state.clear()
 
 @dp.callback_query(EditStates.outcome, F.data.startswith("outcome_"))
 async def edit_outcome_click(callback: types.CallbackQuery, state: FSMContext):
-    bet_id = callback.data.split(":")[1]
-    # ✅ Исправлено: отрезаем ID, чтобы в БД уходило только "win"/"loss"/"push"
-    outcome = callback.data.split("_")[1].split(":")[0]
+    parts = callback.data.split(":")
+    bet_id = parts[1]
+    outcome = parts[0].split("_")[1]
     await update_bet(bet_id, outcome=outcome)
     await show_updated_bet(callback.message, bet_id)
     await state.clear()
     await callback.answer()
 
 async def show_updated_bet(target, bet_id):
-    # ✅ Исправлено: получаем ставку именно по ID, а не последнюю в БД
     bet = await get_bet_by_id(bet_id)
     if not bet:
         await target.answer("⚠️ Ставка не найдена.")
         return
     profit = (bet['stake'] * bet['odds'] - bet['stake']) if bet['outcome'] == 'win' else (-bet['stake']) if bet['outcome'] == 'loss' else 0
-    text = (
-        f"✅ Обновлено!\n"
-        f"🏟 {bet['event']} | 📊 {bet['market']}\n"
-        f"🔢 {bet['odds']} | 💰 {bet['stake']}\n"
-        f"🎯 {bet['outcome']} | 📊 Прибыль: `{profit:+.2f}`"
-    )
+    text = (f"✅ Обновлено!\n🏟 {bet['event']} | 📊 {bet['market']}\n"
+            f"🔢 {bet['odds']} | 💰 {bet['stake']}\n🎯 {bet['outcome']} | 📊 Прибыль: `{profit:+.2f}`")
     await target.edit_text(text, reply_markup=main_menu_kb())
 
 @dp.callback_query(F.data.startswith("delete_bet:"), EditStates.menu)
@@ -393,15 +396,13 @@ async def callback_stats(callback: types.CallbackQuery):
     days = {"7": 7, "30": 30}.get(period, None)
     label = "7 дней" if period == "7" else "30 дней" if period == "30" else "всё время"
     stats = await get_stats(callback.from_user.id, days)
-    text = (
-        f"📊 Статистика за {label}\n"
-        f"🔹 Ставок: `{stats['total']}`\n"
-        f"✅️ Выиграно: `{stats['wins']}` | 🔴 Проиграно: `{stats['losses']}` | ⚪ Возврат: `{stats['pushes']}`\n"
-        f"📈 Винрейт: `{stats['win_rate']:.1f}%`\n"
-        f"💰 Вложено: `{stats['staked']:.2f}` | 💸 Возвращено: `{stats['returned']:.2f}`\n"
-        f"📉 Прибыль: `{stats['profit']:+.2f}` | 📊 ROI: `{stats['roi']:.1f}%`"
-    )
-    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=main_menu_kb())
+    text = (f"📊 Статистика за {label}\n"
+            f"🔹 Ставок: `{stats['total']}`\n"
+            f"✅️ Выиграно: `{stats['wins']}` | 🔴 Проиграно: `{stats['losses']}` | ⚪ Возврат: `{stats['pushes']}`\n"
+            f"📈 Винрейт: `{stats['win_rate']:.1f}%`\n"
+            f"💰 Вложено: `{stats['staked']:.2f}` | 💸 Возвращено: `{stats['returned']:.2f}`\n"
+            f"📉 Прибыль: `{stats['profit']:+.2f}` | 📊 ROI: `{stats['roi']:.1f}%`")
+    await callback.message.edit_text(text, reply_markup=main_menu_kb())
     await callback.answer()
 
 # 🏁 Запуск

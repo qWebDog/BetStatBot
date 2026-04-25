@@ -410,9 +410,9 @@ async def callback_stats(callback: types.CallbackQuery):
     stats = await get_stats(callback.from_user.id, days)
     text = (f"📊 Статистика за {label}\n"
             f"🔹 Ставок: `{stats['total']}`\n"
-            f"✅️ Выиграно: `{stats['wins']}`\n 🔴 Проиграно: `{stats['losses']}`\n ⚪ Возврат: `{stats['pushes']}`\n"
+            f"✅️ Выиграно: `{stats['wins']}`\n🔴 Проиграно: `{stats['losses']}`\n⚪ Возврат: `{stats['pushes']}`\n"
             f"📈 Винрейт: `{stats['win_rate']:.1f}%`\n"
-            f"💰 Вложено: `{stats['staked']:.2f}` | 💸 Возвращено: `{stats['returned']:.2f}`\n"
+            f"💰 Вложено: `{stats['staked']:.2f}`\n💸 Возвращено: `{stats['returned']:.2f}`\n"
             f"📉 Прибыль: `{stats['profit']:+.2f}` | 📊 ROI: `{stats['roi']:.1f}%`")
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=main_menu_kb())
     await callback.answer()
